@@ -1,0 +1,57 @@
+name: Update gold price
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get repository
+        uses: actions/checkout@v4
+
+      - name: Update price.json
+        shell: python
+        run: |
+          import urllib.request, re, json, datetime
+          url = "https://www.tgju.org/gold-chart/1000"
+          req = urllib.request.Request(url, headers={"User-Agent":"Mozilla/5.0"})
+          html = urllib.request.urlopen(req, timeout=30).read().decode("utf-8", "ignore")
+
+          # Locate the 18k/750 price near its table row.
+          patterns = [
+              r'طلای\s*18\s*عیار\s*/\s*750.{0,1200}?([0-9۰-۹]{6,})',
+              r'طلای\s*18\s*عیار.{0,1200}?([0-9۰-۹]{6,})'
+          ]
+          price = None
+          for pat in patterns:
+              m = re.search(pat, html, re.S | re.I)
+              if m:
+                  raw = m.group(1).translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹","0123456789")).replace(",","")
+                  if raw.isdigit():
+                      price = int(raw)
+                      break
+
+          if not price:
+              raise SystemExit("Could not find 18k gold price")
+
+          data = {
+              "price_rial": price,
+              "updated_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+              "source": "TGJU"
+          }
+          with open("price.json","w",encoding="utf-8") as f:
+              json.dump(data,f,ensure_ascii=False,indent=2)
+
+      - name: Commit price
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add price.json
+          git diff --cached --quiet || git commit -m "Update gold price"
+          git push
