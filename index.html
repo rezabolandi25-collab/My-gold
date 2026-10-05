@@ -46,5 +46,7 @@ function calc(){let p=+document.querySelector('#price').value||0,sf=(+document.q
 function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 function render(){let tb=document.querySelector('#tbl'),em=document.querySelector('#empty'),body=tb.querySelector('tbody');body.innerHTML='';em.hidden=buys.length>0;tb.hidden=!buys.length;buys.forEach((x,i)=>body.innerHTML+=`<tr><td>${esc(x.d)}</td><td>${fa(x.g)}</td><td>${money(x.b)}</td><td>${money(x.f)}</td><td><button class="del" onclick="del(${i})">حذف</button></td></tr>`);calc()}
 async function loadPrice(){let status=document.querySelector('#status');status.textContent='در حال دریافت قیمت...';try{let r=await fetch('price.json?x='+Date.now(),{cache:'no-store'});if(!r.ok)throw Error();let data=await r.json();if(!(data.price_rial>0))throw Error();let toman=data.price_rial/10;document.querySelector('#price').value=Math.round(toman);document.querySelector('#current').textContent=money(toman);status.textContent='آخرین به‌روزرسانی: '+(data.updated_at||'');status.className='muted ok';calc()}catch(e){status.textContent='دریافت خودکار قیمت فعلاً انجام نشد؛ قیمت را دستی وارد کن.';status.className='muted err'}}
-render();loadPrice();
+render();
+loadPrice();
+setInterval(loadPrice, 300000); // به‌روزرسانی خودکار هر ۵ دقیقه در پس‌زمینه
 </script></body></html>
