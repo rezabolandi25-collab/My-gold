@@ -13,8 +13,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout latest
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Get 18k gold price from TGJU
         shell: python
@@ -26,20 +28,30 @@ jobs:
           import html as html_lib
 
           url = "https://gem.tgju.org/profile/geram18"
-          req = urllib.request.Request(url, headers={
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36",
-              "Accept-Language": "fa-IR,fa;q=0.9,en;q=0.8"
-          })
+          req = urllib.request.Request(
+              url,
+              headers={
+                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36",
+                  "Accept-Language": "fa-IR,fa;q=0.9,en;q=0.8"
+              }
+          )
+
           raw = urllib.request.urlopen(req, timeout=30).read().decode("utf-8", "ignore")
+
           text = html_lib.unescape(raw)
           text = re.sub(r"<script.*?</script>", " ", text, flags=re.S | re.I)
           text = re.sub(r"<style.*?</style>", " ", text, flags=re.S | re.I)
           text = re.sub(r"<[^>]+>", " ", text)
           text = re.sub(r"\s+", " ", text)
 
-          matches = re.findall(r"نرخ\s*فعلی\s*[:：]?\s*([0-9۰-۹][0-9۰-۹,]*)", text)
+          matches = re.findall(
+              r"نرخ\s*فعلی\s*[:：]?\s*([0-9۰-۹][0-9۰-۹,]*)",
+              text
+          )
+
           trans = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
           price = None
+
           for raw_price in matches:
               value = int(raw_price.translate(trans).replace(",", ""))
               if 10_000_000 <= value <= 2_000_000_000:
@@ -54,14 +66,29 @@ jobs:
               "updated_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
               "source": "TGJU / geram18"
           }
+
           with open("price.json", "w", encoding="utf-8") as f:
               json.dump(data, f, ensure_ascii=False, indent=2)
+
           print("18k gold price (rial):", price)
 
-      - name: Commit updated price
+      - name: Commit and push safely
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           git add price.json
-          git diff --cached --quiet || git commit -m "Update 18k gold price"
-          git push
+
+          if git diff --cached --quiet; then
+            echo "Price did not change."
+            exit 0
+          fi
+
+          git commit -m "Update 18k gold price"
+
+          # Another GitHub process can update main while this job is running.
+          # Rebase our price commit on the newest main before pushing.
+          git fetch origin main
+          git rebase origin/main
+
+          git push origin HEAD:main
