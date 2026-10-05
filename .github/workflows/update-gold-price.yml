@@ -13,21 +13,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout latest
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Get 18k gold price from TGJU
+      - name: Get 18k gold price from Telegram
         shell: python
         run: |
           import urllib.request
+          import urllib.error
           import re
           import json
           import datetime
           import html as html_lib
 
-          url = "https://gem.tgju.org/profile/geram18"
+          url = "https://t.me/s/tgjunews"
+
           req = urllib.request.Request(
               url,
               headers={
@@ -36,59 +33,146 @@ jobs:
               }
           )
 
-          raw = urllib.request.urlopen(req, timeout=30).read().decode("utf-8", "ignore")
+          raw = urllib.request.urlopen(req, timeout=30).read().decode(
+              "utf-8", "ignore"
+          )
 
           text = html_lib.unescape(raw)
-          text = re.sub(r"<script.*?</script>", " ", text, flags=re.S | re.I)
-          text = re.sub(r"<style.*?</style>", " ", text, flags=re.S | re.I)
+
+          text = re.sub(
+              r"<script.*?</script>",
+              " ",
+              text,
+              flags=re.S | re.I
+          )
+
+          text = re.sub(
+              r"<style.*?</style>",
+              " ",
+              text,
+              flags=re.S | re.I
+          )
+
           text = re.sub(r"<[^>]+>", " ", text)
           text = re.sub(r"\s+", " ", text)
 
-          matches = re.findall(
-              r"نرخ\s*فعلی\s*[:：]?\s*([0-9۰-۹][0-9۰-۹,]*)",
-              text
+          posts = re.split(r"قیمت طلای 18 عیار", text)
+
+          trans = str.maketrans(
+              "۰۱۲۳۴۵۶۷۸۹",
+              "0123456789"
           )
 
-          trans = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
           price = None
 
-          for raw_price in matches:
-              value = int(raw_price.translate(trans).replace(",", ""))
-              if 10_000_000 <= value <= 2_000_000_000:
-                  price = value
-                  break
+          for post in reversed(posts):
+
+              match = re.search(
+                  r"قیمت\s*لحظه\s*ای\s*[:：]?\s*"
+                  r"([0-9۰-۹][0-9۰-۹,]*)\s*ریال",
+                  post[:2500]
+              )
+
+              if match:
+
+                  value = int(
+                      match.group(1)
+                      .translate(trans)
+                      .replace(",", "")
+                  )
+
+                  if 10_000_000 <= value <= 2_000_000_000:
+                      price = value
+                      break
 
           if price is None:
-              raise SystemExit("Could not find a valid 18k gold price on TGJU")
+              raise SystemExit(
+                  "Could not find a valid 18k gold price in Telegram"
+              )
 
           data = {
               "price_rial": price,
-              "updated_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
-              "source": "TGJU / geram18"
+              "updated_at": datetime.datetime.now(
+                  datetime.timezone.utc
+              ).strftime("%Y-%m-%d %H:%M UTC"),
+              "source": "Telegram / @tgjunews"
           }
 
-          with open("price.json", "w", encoding="utf-8") as f:
-              json.dump(data, f, ensure_ascii=False, indent=2)
+          with open(
+              "price.json",
+              "w",
+              encoding="utf-8"
+          ) as f:
+
+              json.dump(
+                  data,
+                  f,
+                  ensure_ascii=False,
+                  indent=2
+              )
 
           print("18k gold price (rial):", price)
 
-      - name: Commit and push safely
+      - name: Update price.json through GitHub API
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+
+        shell: python
+
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add price.json
+          import urllib.request
+          import urllib.error
+          import json
+          import base64
+          import time
 
-          if git diff --cached --quiet; then
-            echo "Price did not change."
-            exit 0
-          fi
+          api = (
+              f"https://api.github.com/repos/"
+              f"{REPO}/contents/price.json"
+          )
 
-          git commit -m "Update 18k gold price"
+          headers = {
+              "Authorization": f"Bearer {GH_TOKEN}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "gold-price-updater"
+          }
 
-          # Another GitHub process can update main while this job is running.
-          # Rebase our price commit on the newest main before pushing.
-          git fetch origin main
-          git rebase origin/main
+          content = open(
+              "price.json",
+              "rb"
+          ).read()
 
-          git push origin HEAD:main
+          encoded = base64.b64encode(
+              content
+          ).decode()
+
+          for attempt in range(1, 6):
+
+              try:
+
+                  get_req = urllib.request.Request(
+                      api,
+                      headers=headers
+                  )
+
+                  with urllib.request.urlopen(
+                      get_req,
+                      timeout=30
+                  ) as response:
+
+                      current = json.load(response)
+
+                  payload = json.dumps({
+                      "message": "Update 18k gold price",
+                      "content": encoded,
+                      "sha": current["sha"],
+                      "branch": "main"
+                  }).encode()
+
+                  put_req = urllib.request.Request(
+                      api,
+                      data=payload,
+                      headers
