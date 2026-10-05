@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Get 18k gold price from TGJU
+      - name: Get 18k gold price
         shell: python
         run: |
           import urllib.request
@@ -32,13 +32,16 @@ jobs:
               }
           )
 
-          raw = urllib.request.urlopen(req, timeout=30).read().decode(
-              "utf-8", "ignore"
+          raw = urllib.request.urlopen(
+              req,
+              timeout=30
+          ).read().decode(
+              "utf-8",
+              "ignore"
           )
 
           text = html.unescape(raw)
 
-          # حذف تگ‌های HTML
           text = re.sub(
               r"<script.*?</script>",
               " ",
@@ -56,13 +59,11 @@ jobs:
           text = re.sub(r"<[^>]+>", " ", text)
           text = re.sub(r"\s+", " ", text)
 
-          # تبدیل اعداد فارسی به انگلیسی
           trans = str.maketrans(
               "۰۱۲۳۴۵۶۷۸۹",
               "0123456789"
           )
 
-          # پیدا کردن «نرخ فعلی»
           matches = re.findall(
               r"نرخ\s*فعلی\s*[:：]?\s*([0-9۰-۹][0-9۰-۹,]*)",
               text
@@ -75,14 +76,13 @@ jobs:
                   item.translate(trans).replace(",", "")
               )
 
-              # محدوده منطقی قیمت یک گرم طلای 18 عیار
               if 10_000_000 <= value <= 1_000_000_000:
                   price = value
                   break
 
           if price is None:
               raise Exception(
-                  "18k gold price was not found on TGJU"
+                  "18k gold price was not found"
               )
 
           data = {
@@ -145,7 +145,6 @@ jobs:
 
               try:
 
-                  # گرفتن SHA فعلی price.json
                   get_request = urllib.request.Request(
                       api,
                       headers=headers
@@ -170,8 +169,7 @@ jobs:
                       data=payload,
                       headers={
                           **headers,
-                          "Content-Type":
-                          "application/json"
+                          "Content-Type": "application/json"
                       },
                       method="PUT"
                   )
